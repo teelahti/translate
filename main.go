@@ -35,9 +35,7 @@ func main() {
 		printHelpAndExit()
 	}
 
-	from := args[0]
-	to := args[1]
-	term := args[2]
+	from, to, term := args[0], args[1], args[2]
 
 	ctx := context.Background()
 	c, err := translate.NewTranslationClient(ctx)
@@ -46,8 +44,8 @@ func main() {
 	}
 	defer c.Close()
 
+	// https://pkg.go.dev/cloud.google.com/go/translate/apiv3/translatepb#TranslateTextRequest
 	req := &translatepb.TranslateTextRequest{
-		// https://pkg.go.dev/cloud.google.com/go/translate/apiv3/translatepb#TranslateTextRequest
 		Parent:             getGcpParent(),
 		SourceLanguageCode: from,
 		TargetLanguageCode: to,
@@ -71,7 +69,6 @@ func main() {
 			printThesaurus(s.TranslatedText)
 		}
 	}
-
 }
 
 func printHelpAndExit() {
@@ -81,8 +78,8 @@ func printHelpAndExit() {
 
 func printThesaurus(w string) {
 
-	baseUrl := "https://www.dictionaryapi.com/api/v3/references/thesaurus/json/%s?key=%s"
-	apiUrl := fmt.Sprintf(baseUrl, url.QueryEscape(w), getThApiKey())
+	tmpl := "https://www.dictionaryapi.com/api/v3/references/thesaurus/json/%s?key=%s"
+	apiUrl := fmt.Sprintf(tmpl, url.QueryEscape(w), getThApiKey())
 
 	resp, err := http.Get(apiUrl)
 	if err != nil {
@@ -103,12 +100,13 @@ func printThesaurus(w string) {
 		fmt.Println()
 
 		for _, sf := range r.Shortdef {
-			fmt.Printf("%s   ", sf)
-			color.Magenta(r.Fl)
+			fmt.Println(sf)
 		}
 
+		flPrinter := color.New(color.FgMagenta).PrintFunc()
+		flPrinter(r.Fl[:4])
 		p := color.New(color.FgWhite).PrintfFunc()
-		p("    %s\n", strings.Join(r.Meta.Stems, ", "))
+		p(" %s\n", strings.Join(r.Meta.Stems, ", "))
 
 		printSyns(r.Meta.Syns, "syn.:", 5)
 		printSyns(r.Meta.Ants, "ant.:", 5)
@@ -125,7 +123,7 @@ func printSyns(lst [][]string, prefix string, limit int) {
 		fmt.Println()
 
 		for _, synGrp := range lst {
-			prefPrinter("    %s ", prefix)
+			prefPrinter("     %s ", prefix)
 
 			for j, syn := range synGrp {
 				fmt.Print(syn)
