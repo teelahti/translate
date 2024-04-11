@@ -141,21 +141,25 @@ func printSyns(lst [][]string, prefix string, limit int) {
 }
 func getGcpParent() string {
 	const GCP_ENV = "TRANSLATE_GCP_PARENT"
+
 	parent, found := os.LookupEnv(GCP_ENV)
 	if !found {
 		fmt.Println("GCP Parent identifier missing (like projects/my-project). Add it with env", GCP_ENV)
 		os.Exit(1)
 	}
+
 	return parent
 }
 
 func getThApiKey() string {
 	const TH_API_ENV = "TRANSLATE_THESAURUS_API_KEY"
+
 	th_api_key, found := os.LookupEnv(TH_API_ENV)
 	if !found {
 		fmt.Println("Merriam-Webster thesaurus API key missing. Add it with env", TH_API_ENV)
 		os.Exit(1)
 	}
+
 	return th_api_key
 }
 
