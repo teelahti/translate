@@ -17,7 +17,6 @@ Translate from language to another; supports all Google Translate languages:
 
 ```bash
 translate fi-FI en-US keittiö
-
 ```
 
 If target language is en-US, retrieves extra information from Merriam-Webster.
@@ -28,3 +27,7 @@ give the term and nothing else.
 ```bash
 translate kitchen
 ```
+
+## Develop
+
+Run `nix develop` to get a working environment.

@@ -40,6 +40,7 @@
             packages = [
               pkgs.go
               pkgs.gotools
+              pkgs.gopls
             ];
           };
         });
