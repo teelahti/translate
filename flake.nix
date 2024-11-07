@@ -24,7 +24,8 @@
             version = "1.0.0";
             src = ./.;
             # Use nixpkgs.lib.fakeHash until the real one is calculated by nix build
-            vendorHash = "sha256-EXaBW8WERGxgDP5hE3PhJy89a/9V1oaLN38kNYsNpJA=";
+            # vendorHash = nixpkgs.lib.fakeHash;
+            vendorHash = "sha256-NCyjZsSpMUFBV2wTFfmpcu4JKWZVb5gZ0qFCSQEO2mI=";
             buildInputs = [];
           };
 
