@@ -2,23 +2,24 @@
   description = "CLI translation tool";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs?tag=24.05";
+    nixpkgs.url = "github:NixOS/nixpkgs?tag=24.11";
+    flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, ... }:
-    let
-      supportedSystems = [ "x86_64-linux" "x86_64-darwin" "aarch64-linux" "aarch64-darwin" ];
-
-      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-
-      nixpkgsFor = forAllSystems (system: import nixpkgs { inherit system; });
-    in
+  outputs =
     {
-      packages = forAllSystems (system:
-        let
-          pkgs = nixpkgsFor.${system};
-        in
-        rec {
+      self,
+      nixpkgs,
+      flake-utils,
+      ...
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in
+      {
+        packages = rec {
           translate = pkgs.buildGoModule {
             pname = "translate";
             version = "1.0.0";
@@ -26,17 +27,13 @@
             # Use nixpkgs.lib.fakeHash until the real one is calculated by nix build
             # vendorHash = nixpkgs.lib.fakeHash;
             vendorHash = "sha256-NCyjZsSpMUFBV2wTFfmpcu4JKWZVb5gZ0qFCSQEO2mI=";
-            buildInputs = [];
+            buildInputs = [ ];
           };
 
           default = translate;
-        });
+        };
 
-      devShells = forAllSystems (system:
-        let
-          pkgs = nixpkgsFor.${system};
-        in
-        {
+        devShells = {
           default = pkgs.mkShell {
             packages = [
               pkgs.go
@@ -45,6 +42,7 @@
               pkgs.golangci-lint-langserver
             ];
           };
-        });
-    };
+        };
+      }
+    );
 }
