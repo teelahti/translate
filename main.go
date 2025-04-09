@@ -141,26 +141,33 @@ func printSyns(lst [][]string, prefix string, limit int) {
 }
 func getGcpParent() string {
 	const GCP_ENV = "TRANSLATE_GCP_PARENT"
-
-	parent, found := os.LookupEnv(GCP_ENV)
-	if !found {
-		fmt.Println("GCP Parent identifier missing (like projects/my-project). Add it with env", GCP_ENV)
-		os.Exit(1)
-	}
-
-	return parent
+	return getSecret(GCP_ENV, "GCP Parent identifier missing (like projects/my-project).")
 }
 
 func getThApiKey() string {
 	const TH_API_ENV = "TRANSLATE_THESAURUS_API_KEY"
+	return getSecret(TH_API_ENV, "Merriam-Webster thesaurus API key missing.")
+}
 
-	th_api_key, found := os.LookupEnv(TH_API_ENV)
+func getSecret(env string, desc string) string {
+	envf := env + "_FILE"
+	// Option 1: secret in env variable
+	val, found := os.LookupEnv(env)
 	if !found {
-		fmt.Println("Merriam-Webster thesaurus API key missing. Add it with env", TH_API_ENV)
+		// Option 2: env variable tells the location of the secret file
+		if fp, found := os.LookupEnv(envf); found {
+			if b, err := os.ReadFile(fp); err == nil {
+				for _, v := range strings.SplitN((string)(b), "\n", 1) {
+					return v
+				}
+			}
+		}
+
+		fmt.Println(desc, "The env variable", env, "should contain the configuration value, or", envf, "the path to the file containing the configuration value on first line.")
 		os.Exit(1)
 	}
 
-	return th_api_key
+	return val
 }
 
 // Generated from Thesaurus API response with
