@@ -22,7 +22,7 @@
         packages = rec {
           translate = pkgs.buildGoModule {
             pname = "translate";
-            version = "1.0.0";
+            version = "1.1.0";
             src = ./.;
             # Use nixpkgs.lib.fakeHash until the real one is calculated by nix build
             # vendorHash = nixpkgs.lib.fakeHash;
