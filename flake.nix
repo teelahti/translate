@@ -39,7 +39,7 @@
               pkgs.go
               pkgs.gotools
               pkgs.gopls
-              pkgs.golangci-lint-langserver
+              pkgs.golangci-lint
             ];
           };
         };
