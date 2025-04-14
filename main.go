@@ -93,12 +93,17 @@ func printThesaurus(w string) {
 	var result ThesaurusResponse
 	if err := json.Unmarshal(body, &result); err != nil { // Parse []byte to the go struct pointer
 		fmt.Println("Can not unmarshal JSON")
+		fmt.Println("\nError: \n", err)
+		fmt.Println("\nResponse: \n", (string)(body))
 		os.Exit(2)
 	}
 
 	for _, r := range result {
 		fmt.Println()
 
+		// There would be way more information in r.Def, but that requires extra
+		// parsing and changing bolds and italics to CLI equivalents. See JSON
+		// definition and API definition for more information.
 		for _, sf := range r.Shortdef {
 			fmt.Println(sf)
 		}
@@ -172,6 +177,7 @@ func getSecret(env string, desc string) string {
 
 // Generated from Thesaurus API response with
 // https://mholt.github.io/json-to-go/
+// Json specification: https://dictionaryapi.com/products/json
 type ThesaurusResponse []struct {
 	Meta struct {
 		ID      string `json:"id"`
