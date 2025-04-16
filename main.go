@@ -92,6 +92,15 @@ func printThesaurus(w string) {
 
 	var result ThesaurusResponse
 	if err := json.Unmarshal(body, &result); err != nil { // Parse []byte to the go struct pointer
+		// In this case the response might be list of other words similar to this word. Try that
+		// approach before writing the error response.
+		var result2 []string
+
+		if err2 := json.Unmarshal(body, &result2); err2 == nil {
+			fmt.Println("not found; try:", result2)
+			os.Exit(0)
+		}
+
 		fmt.Println("Can not unmarshal JSON")
 		fmt.Println("\nError: \n", err)
 		fmt.Println("\nResponse: \n", (string)(body))
