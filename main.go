@@ -20,14 +20,13 @@ import (
 const EN = "en-US"
 
 func main() {
-
 	args := os.Args[1:]
 	if len(args) == 0 {
 		printHelpAndExit()
 	}
 
 	if len(args) == 1 {
-		printThesaurus(args[0])
+		printDictionary(args[0])
 		os.Exit(0)
 	}
 
@@ -63,151 +62,213 @@ func main() {
 		heading := color.New(color.FgWhite).Add(color.Bold)
 		heading.Println(s.TranslatedText)
 
-		if to == "en-US" {
-			// Consider adding also Dictionary entries from
-			// https://dictionaryapi.com/products/api-collegiate-dictionary
-			printThesaurus(s.TranslatedText)
+		if to == EN {
+			printDictionary(s.TranslatedText)
 		}
 	}
 }
 
 func printHelpAndExit() {
-	fmt.Println("Arguments missing. Supports two modes: \n    fromLang toLang term\n    term")
+	fmt.Println("Arguments missing. Supports two modes:")
+	fmt.Println("    fromLang toLang term")
+	fmt.Println("    term")
+	fmt.Println("Language codes use BCP-47 format: fi-FI, en-US, de-DE, etc.")
 	os.Exit(1)
 }
 
-func printThesaurus(w string) {
+// printDictionary looks up an English word using the Free Dictionary API
+// and prints definitions, phonetics, synonyms, and antonyms.
+func printDictionary(w string) {
+	apiURL := fmt.Sprintf("https://api.dictionaryapi.dev/api/v2/entries/en/%s", url.PathEscape(strings.ToLower(w)))
 
-	tmpl := "https://www.dictionaryapi.com/api/v3/references/thesaurus/json/%s?key=%s"
-	apiUrl := fmt.Sprintf(tmpl, url.QueryEscape(w), getThApiKey())
-
-	resp, err := http.Get(apiUrl)
+	resp, err := http.Get(apiURL)
 	if err != nil {
-		fmt.Println("No response from request")
-		os.Exit(1)
+		fmt.Println("Dictionary request failed:", err)
+		return
 	}
-
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body) // response body is []byte
 
-	var result ThesaurusResponse
-	if err := json.Unmarshal(body, &result); err != nil { // Parse []byte to the go struct pointer
-		// In this case the response might be list of other words similar to this word. Try that
-		// approach before writing the error response.
-		var result2 []string
-
-		if err2 := json.Unmarshal(body, &result2); err2 == nil {
-			fmt.Println("not found; try:", result2)
-			os.Exit(0)
-		}
-
-		fmt.Println("Can not unmarshal JSON")
-		fmt.Println("\nError: \n", err)
-		fmt.Println("\nResponse: \n", (string)(body))
-		os.Exit(2)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Failed to read dictionary response:", err)
+		return
 	}
 
-	for _, r := range result {
-		fmt.Println()
+	if resp.StatusCode == http.StatusNotFound {
+		printSuggestions(w)
+		return
+	}
 
-		// There would be way more information in r.Def, but that requires extra
-		// parsing and changing bolds and italics to CLI equivalents. See JSON
-		// definition and API definition for more information.
-		for _, sf := range r.Shortdef {
-			fmt.Println(sf)
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Dictionary API error (HTTP %d)\n", resp.StatusCode)
+		return
+	}
+
+	var result DictionaryResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		fmt.Println("Failed to parse dictionary response:", err)
+		return
+	}
+
+	if len(result) == 0 {
+		return
+	}
+
+	entry := result[0]
+
+	// Find phonetic transcription
+	phonetic := entry.Phonetic
+	if phonetic == "" {
+		for _, p := range entry.Phonetics {
+			if p.Text != "" {
+				phonetic = p.Text
+				break
+			}
+		}
+	}
+
+	if phonetic != "" {
+		fmt.Println(phonetic)
+	}
+
+	// Print definitions grouped by part of speech
+	const maxMeanings = 3
+	const maxDefs = 2
+
+	var allSyns, allAnts []string
+
+	for i, meaning := range entry.Meanings {
+		if i >= maxMeanings {
+			break
 		}
 
+		fl := fmt.Sprintf("%-4.4s", meaning.PartOfSpeech)
 		flPrinter := color.New(color.FgMagenta).PrintFunc()
-		flPrinter(r.Fl[:4])
-		p := color.New(color.FgWhite).PrintfFunc()
-		p(" %s\n", strings.Join(r.Meta.Stems, ", "))
 
-		printSyns(r.Meta.Syns, "syn.:", 5)
-		printSyns(r.Meta.Ants, "ant.:", 5)
+		for j, def := range meaning.Definitions {
+			if j >= maxDefs {
+				break
+			}
 
+			if j == 0 {
+				flPrinter(fl)
+			} else {
+				fmt.Print("    ")
+			}
+
+			fmt.Printf(" %s\n", def.Definition)
+		}
+
+		allSyns = append(allSyns, meaning.Synonyms...)
+		allAnts = append(allAnts, meaning.Antonyms...)
 	}
+
+	// Print aggregated synonyms and antonyms
+	const synLimit = 6
+	printWordList(allSyns, "syn.:", synLimit)
+	printWordList(allAnts, "ant.:", synLimit)
+
+	fmt.Println()
 }
 
-func printSyns(lst [][]string, prefix string, limit int) {
+// printSuggestions fetches spelling suggestions from Datamuse when a word
+// is not found in the dictionary.
+func printSuggestions(w string) {
+	apiURL := fmt.Sprintf("https://api.datamuse.com/words?sl=%s&max=5", url.QueryEscape(w))
+
+	resp, err := http.Get(apiURL)
+	if err != nil {
+		fmt.Println("not found in dictionary")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("not found in dictionary")
+		return
+	}
+
+	var suggestions []struct {
+		Word string `json:"word"`
+	}
+
+	if err := json.Unmarshal(body, &suggestions); err != nil || len(suggestions) == 0 {
+		fmt.Println("not found in dictionary")
+		return
+	}
+
+	words := make([]string, len(suggestions))
+	for i, s := range suggestions {
+		words[i] = s.Word
+	}
+
+	fmt.Println("not found; try:", strings.Join(words, ", "))
+}
+
+// printWordList prints a labeled list of words (for synonyms/antonyms).
+func printWordList(words []string, prefix string, limit int) {
+	if len(words) == 0 {
+		return
+	}
+
+	if len(words) > limit {
+		words = words[:limit]
+	}
 
 	prefPrinter := color.New(color.FgCyan).PrintfFunc()
 
-	// Print first N synonyms or antonyms since these lists can be huge
-	if len(lst) > 0 {
-		fmt.Println()
-
-		for _, synGrp := range lst {
-			prefPrinter("     %s ", prefix)
-
-			for j, syn := range synGrp {
-				fmt.Print(syn)
-
-				if j > limit {
-					break
-				}
-
-				fmt.Print(", ")
-			}
-
-			fmt.Println()
-		}
-	}
+	fmt.Println()
+	prefPrinter("     %s ", prefix)
+	fmt.Println(strings.Join(words, ", "))
 }
+
 func getGcpParent() string {
 	const GCP_ENV = "TRANSLATE_GCP_PARENT"
 	return getSecret(GCP_ENV, "GCP Parent identifier missing (like projects/my-project).")
 }
 
-func getThApiKey() string {
-	const TH_API_ENV = "TRANSLATE_THESAURUS_API_KEY"
-	return getSecret(TH_API_ENV, "Merriam-Webster thesaurus API key missing.")
-}
-
 func getSecret(env string, desc string) string {
 	envf := env + "_FILE"
+
 	// Option 1: secret in env variable
 	val, found := os.LookupEnv(env)
-	if !found {
-		// Option 2: env variable tells the location of the secret file
-		if fp, found := os.LookupEnv(envf); found {
-			if b, err := os.ReadFile(fp); err == nil {
-				for _, v := range strings.SplitN((string)(b), "\n", 1) {
-					return v
-				}
-			}
-		}
-
-		fmt.Println(desc, "The env variable", env, "should contain the configuration value, or", envf, "the path to the file containing the configuration value on first line.")
-		os.Exit(1)
+	if found {
+		return val
 	}
 
-	return val
+	// Option 2: env variable tells the location of the secret file
+	if fp, found := os.LookupEnv(envf); found {
+		b, err := os.ReadFile(fp)
+		if err == nil {
+			return strings.SplitN(string(b), "\n", 2)[0]
+		}
+	}
+
+	fmt.Println(desc, "The env variable", env, "should contain the configuration value, or", envf, "the path to the file containing the configuration value on first line.")
+	os.Exit(1)
+
+	return ""
 }
 
-// Generated from Thesaurus API response with
-// https://mholt.github.io/json-to-go/
-// Json specification: https://dictionaryapi.com/products/json
-type ThesaurusResponse []struct {
-	Meta struct {
-		ID      string `json:"id"`
-		UUID    string `json:"uuid"`
-		Src     string `json:"src"`
-		Section string `json:"section"`
-		Target  struct {
-			Tuuid string `json:"tuuid"`
-			Tsrc  string `json:"tsrc"`
-		} `json:"target"`
-		Stems     []string   `json:"stems"`
-		Syns      [][]string `json:"syns"`
-		Ants      [][]string `json:"ants"`
-		Offensive bool       `json:"offensive"`
-	} `json:"meta"`
-	Hwi struct {
-		Hw string `json:"hw"`
-	} `json:"hwi"`
-	Fl  string `json:"fl"`
-	Def []struct {
-		Sseq [][][]any `json:"sseq"`
-	} `json:"def"`
-	Shortdef []string `json:"shortdef"`
+// Free Dictionary API types
+
+type DictionaryResponse []struct {
+	Word      string `json:"word"`
+	Phonetic  string `json:"phonetic"`
+	Phonetics []struct {
+		Text  string `json:"text"`
+		Audio string `json:"audio"`
+	} `json:"phonetics"`
+	Meanings []struct {
+		PartOfSpeech string `json:"partOfSpeech"`
+		Definitions  []struct {
+			Definition string   `json:"definition"`
+			Example    string   `json:"example"`
+			Synonyms   []string `json:"synonyms"`
+			Antonyms   []string `json:"antonyms"`
+		} `json:"definitions"`
+		Synonyms []string `json:"synonyms"`
+		Antonyms []string `json:"antonyms"`
+	} `json:"meanings"`
 }
