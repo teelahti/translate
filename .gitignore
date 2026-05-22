@@ -20,6 +20,9 @@
 # Go workspace file
 go.work
 
+# Build output
+translate
+
 # Nix build output
 result
 .direnv/
