@@ -2,7 +2,7 @@
   description = "CLI translation tool";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -22,7 +22,7 @@
         packages = rec {
           translate = pkgs.buildGoModule {
             pname = "translate";
-            version = "2.0.0";
+            version = "2.0.1";
             src = ./.;
             # Use nixpkgs.lib.fakeHash until the real one is calculated by nix build
             # vendorHash = nixpkgs.lib.fakeHash;
