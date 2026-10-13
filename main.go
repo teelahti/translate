@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
+	"time"
 
 	translate "cloud.google.com/go/translate/apiv3"
 	"cloud.google.com/go/translate/apiv3/translatepb"
@@ -18,6 +20,8 @@ import (
 )
 
 const EN = "en-US"
+
+var httpClient = &http.Client{Timeout: 5 * time.Second}
 
 func main() {
 	args := os.Args[1:]
@@ -77,11 +81,12 @@ func printHelpAndExit() {
 }
 
 // printDictionary looks up an English word using the Free Dictionary API
-// and prints definitions, phonetics, synonyms, and antonyms.
+// (freedictionaryapi.com, Wiktionary data) and prints definitions,
+// phonetics, synonyms, and antonyms.
 func printDictionary(w string) {
-	apiURL := fmt.Sprintf("https://api.dictionaryapi.dev/api/v2/entries/en/%s", url.PathEscape(strings.ToLower(w)))
+	apiURL := fmt.Sprintf("https://freedictionaryapi.com/api/v1/entries/en/%s", url.PathEscape(strings.ToLower(w)))
 
-	resp, err := http.Get(apiURL)
+	resp, err := httpClient.Get(apiURL)
 	if err != nil {
 		fmt.Println("Dictionary request failed:", err)
 		return
@@ -110,24 +115,13 @@ func printDictionary(w string) {
 		return
 	}
 
-	if len(result) == 0 {
+	// Unknown words come back as 200 with no entries
+	if len(result.Entries) == 0 {
+		printSuggestions(w)
 		return
 	}
 
-	entry := result[0]
-
-	// Find phonetic transcription
-	phonetic := entry.Phonetic
-	if phonetic == "" {
-		for _, p := range entry.Phonetics {
-			if p.Text != "" {
-				phonetic = p.Text
-				break
-			}
-		}
-	}
-
-	if phonetic != "" {
+	if phonetic := findPhonetic(result.Entries); phonetic != "" {
 		fmt.Println(phonetic)
 	}
 
@@ -137,15 +131,15 @@ func printDictionary(w string) {
 
 	var allSyns, allAnts []string
 
-	for i, meaning := range entry.Meanings {
+	for i, entry := range result.Entries {
 		if i >= maxMeanings {
 			break
 		}
 
-		fl := fmt.Sprintf("%-4.4s", meaning.PartOfSpeech)
+		fl := fmt.Sprintf("%-4.4s", entry.PartOfSpeech)
 		flPrinter := color.New(color.FgMagenta).PrintFunc()
 
-		for j, def := range meaning.Definitions {
+		for j, sense := range entry.Senses {
 			if j >= maxDefs {
 				break
 			}
@@ -156,12 +150,19 @@ func printDictionary(w string) {
 				fmt.Print("    ")
 			}
 
-			fmt.Printf(" %s\n", def.Definition)
+			fmt.Printf(" %s\n", sense.Definition)
 		}
 
-		allSyns = append(allSyns, meaning.Synonyms...)
-		allAnts = append(allAnts, meaning.Antonyms...)
+		allSyns = append(allSyns, entry.Synonyms...)
+		allAnts = append(allAnts, entry.Antonyms...)
+		for _, sense := range entry.Senses {
+			allSyns = append(allSyns, sense.Synonyms...)
+			allAnts = append(allAnts, sense.Antonyms...)
+		}
 	}
+
+	allSyns = dedupe(allSyns)
+	allAnts = dedupe(allAnts)
 
 	// Print aggregated synonyms and antonyms
 	const synLimit = 6
@@ -176,7 +177,7 @@ func printDictionary(w string) {
 func printSuggestions(w string) {
 	apiURL := fmt.Sprintf("https://api.datamuse.com/words?sl=%s&max=5", url.QueryEscape(w))
 
-	resp, err := http.Get(apiURL)
+	resp, err := httpClient.Get(apiURL)
 	if err != nil {
 		fmt.Println("not found in dictionary")
 		return
@@ -223,6 +224,38 @@ func printWordList(words []string, prefix string, limit int) {
 	fmt.Println(strings.Join(words, ", "))
 }
 
+// findPhonetic returns the IPA transcription, preferring the US one.
+func findPhonetic(entries []DictionaryEntry) string {
+	var first string
+	for _, e := range entries {
+		for _, p := range e.Pronunciations {
+			if p.Type != "ipa" || p.Text == "" {
+				continue
+			}
+			if slices.Contains(p.Tags, "US") {
+				return p.Text
+			}
+			if first == "" {
+				first = p.Text
+			}
+		}
+	}
+	return first
+}
+
+// dedupe removes duplicate words while keeping the original order.
+func dedupe(words []string) []string {
+	seen := make(map[string]bool, len(words))
+	var out []string
+	for _, w := range words {
+		if !seen[w] {
+			seen[w] = true
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
 func getGcpParent() string {
 	const GCP_ENV = "TRANSLATE_GCP_PARENT"
 	return getSecret(GCP_ENV, "GCP Parent identifier missing (like projects/my-project).")
@@ -251,24 +284,26 @@ func getSecret(env string, desc string) string {
 	return ""
 }
 
-// Free Dictionary API types
+// Free Dictionary API types (freedictionaryapi.com)
 
-type DictionaryResponse []struct {
-	Word      string `json:"word"`
-	Phonetic  string `json:"phonetic"`
-	Phonetics []struct {
-		Text  string `json:"text"`
-		Audio string `json:"audio"`
-	} `json:"phonetics"`
-	Meanings []struct {
-		PartOfSpeech string `json:"partOfSpeech"`
-		Definitions  []struct {
-			Definition string   `json:"definition"`
-			Example    string   `json:"example"`
-			Synonyms   []string `json:"synonyms"`
-			Antonyms   []string `json:"antonyms"`
-		} `json:"definitions"`
-		Synonyms []string `json:"synonyms"`
-		Antonyms []string `json:"antonyms"`
-	} `json:"meanings"`
+type DictionaryResponse struct {
+	Word    string            `json:"word"`
+	Entries []DictionaryEntry `json:"entries"`
+}
+
+type DictionaryEntry struct {
+	PartOfSpeech   string `json:"partOfSpeech"`
+	Pronunciations []struct {
+		Type string   `json:"type"`
+		Text string   `json:"text"`
+		Tags []string `json:"tags"`
+	} `json:"pronunciations"`
+	Senses []struct {
+		Definition string   `json:"definition"`
+		Examples   []string `json:"examples"`
+		Synonyms   []string `json:"synonyms"`
+		Antonyms   []string `json:"antonyms"`
+	} `json:"senses"`
+	Synonyms []string `json:"synonyms"`
+	Antonyms []string `json:"antonyms"`
 }

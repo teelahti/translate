@@ -31,7 +31,8 @@ translate fi-FI en-US keittiö
 ```
 
 If target language is en-US, retrieves extra information (definitions,
-synonyms, antonyms) from the Free Dictionary API.
+synonyms, antonyms) from the [Free Dictionary API](https://freedictionaryapi.com)
+(Wiktionary data).
 
 To only look up an English word:
 
